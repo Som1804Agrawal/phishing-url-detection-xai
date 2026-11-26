@@ -1,0 +1,5 @@
+,TN,FP,FN,TP
+Logistic Regression,65167,2648,3871,44298
+Random Forest,67351,464,1265,46904
+Gradient Boosting,67070,745,1305,46864
+SVM (Linear),65157,2658,3972,44197

@@ -1,0 +1,21 @@
+{
+ "success": "DNS",
+ "dns_resolves": "DNS",
+ "has_mx_record": "DNS",
+ "has_txt_record": "DNS",
+ "has_ns_record": "DNS",
+ "ttl_value": "DNS",
+ "ip_count": "DNS",
+ "cname_count": "DNS",
+ "resolves_to_private_ip": "DNS",
+ "whois_success": "WHOIS",
+ "domain_age_days": "WHOIS",
+ "expiration_days": "WHOIS",
+ "creation_year": "WHOIS",
+ "domain_is_recent": "WHOIS",
+ "domain_registered_before_2020": "WHOIS",
+ "registrar_valid": "WHOIS",
+ "name_servers_count": "WHOIS",
+ "is_privacy_protected": "WHOIS",
+ "whois_missing": "WHOIS"
+}
