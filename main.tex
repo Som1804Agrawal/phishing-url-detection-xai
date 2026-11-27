@@ -1,0 +1,275 @@
+\documentclass[journal]{IEEEtran}
+\usepackage{cite}
+\usepackage{amsmath,amssymb}
+\usepackage{graphicx}
+\usepackage{array}
+\usepackage{url}
+\usepackage{textcomp}
+\hyphenation{phish-ing}
+
+\begin{document}
+
+\title{Explainable Machine Learning-Based Phishing URL Detection Using Lexical, DNS and WHOIS Features}
+
+\author{Som~Agrawal,
+        Raunak~Raghvendra,
+        Archit~Ojha,
+        Yug~Sharma,
+        and~Aryan~Sharma%
+\thanks{The authors are with the University of Petroleum and Energy Studies (UPES), Dehradun, India (SAP IDs: 590017323, 590014977, 590012675, 590011934, 590017816; e-mail: [corresponding author e-mail]).}%
+\thanks{Manuscript received [date]; revised [date].}}
+
+\markboth{Journal of [Journal Name], Vol. XX, No. X, Month 2026}%
+{Agrawal \MakeLowercase{\textit{et al.}}: Explainable Phishing URL Detection}
+
+\maketitle
+
+\begin{abstract}
+Phishing URLs continuously evolve to evade conventional detection mechanisms, posing significant cybersecurity threats to individuals and organizations. Traditional detection methods may struggle to identify newly emerging phishing attacks and often provide limited explanations for their predictions. This paper presents an explainable machine-learning framework that classifies URLs as legitimate or phishing using lexical, DNS and WHOIS features. The study uses the Kaggle Phishing URL Features Dataset, which contains 579,920 records described by 74 engineered numerical features. Logistic regression, random forest, gradient boosting and a linear support vector machine are trained under identical conditions and compared using accuracy, precision, recall, F1-score, ROC-AUC, confusion matrices and explicit success and failure percentages, including the share of phishing URLs that are missed and of legitimate URLs that are wrongly flagged. On a held-out test set of 115,984 URLs the random forest performs best, with a success rate of 98.51\% (failure rate 1.49\%), missing 2.63\% of phishing URLs and wrongly flagging 0.68\% of legitimate URLs. Permutation importance, partial dependence and local explanations show that lexical features carry most of the importance, while WHOIS and DNS features add complementary evidence. The implementation also provides SHAP and LIME explanations. Results come from a single dataset and a single split and should be validated on independently collected data.
+\end{abstract}
+
+\begin{IEEEkeywords}
+Phishing detection, URL classification, machine learning, explainable artificial intelligence, SHAP, LIME, cybersecurity.
+\end{IEEEkeywords}
+
+\IEEEpeerreviewmaketitle
+
+\section{Introduction}
+\IEEEPARstart{P}{hishing} attacks use deceptive web addresses to steal credentials and financial information. Attackers continually change domain names, URL structure and hosting infrastructure, so detectors that depend on lists of known malicious addresses react slowly to new attacks. Machine-learning classifiers can generalize to previously unseen URLs by learning the characteristics that separate phishing from legitimate addresses \cite{ma2009beyond,sahoo2017malicious}. However, a detector that only reports a label offers limited operational value if an analyst cannot see why a URL was flagged, and opaque models are difficult to audit and improve \cite{arrieta2020xai,adadi2018peeking}.
+
+Explainable artificial intelligence (XAI) attributes a model's output to its input features. SHapley Additive exPlanations (SHAP) \cite{lundberg2017unified} and Local Interpretable Model-agnostic Explanations (LIME) \cite{ribeiro2016why} are widely used for this purpose. This work builds a phishing URL detector on three families of evidence: lexical features of the URL string, DNS features describing domain resolution, and WHOIS features describing domain registration.
+
+The principal contributions are:
+\begin{itemize}
+\item a feature-based phishing detector that uses lexical, DNS and WHOIS features on a dataset of 579,920 URLs;
+\item a controlled comparison of four classifiers using standard metrics together with explicit success and failure percentages, separating missed phishing from false alarms;
+\item global and local explanations, including a comparison of the importance of the three feature families, produced by a reproducible pipeline that also supports SHAP and LIME.
+\end{itemize}
+The remainder of the paper describes the dataset and method, the implementation, the experimental results, a discussion, and the limitations of the study.
+
+\section{Related Work}
+Early work showed that statistical models using lexical and host-based features of URLs can detect malicious web sites without visiting them \cite{ma2009beyond}. Surveys describe a common pipeline of labelled data, feature extraction and supervised classification \cite{sahoo2017malicious}, and report strong results for tree-ensemble models on URL features \cite{sahingoz2019machine}. Random forests \cite{breiman2001random} and boosted trees \cite{chen2016xgboost} are widely used for tabular data because they capture non-linear interactions. For explanation, LIME fits a local surrogate model around one prediction \cite{ribeiro2016why}, and SHAP assigns Shapley-value contributions to features \cite{lundberg2017unified}; broader surveys discuss the trade-off between accuracy and interpretability \cite{arrieta2020xai,adadi2018peeking}.
+
+\section{System Architecture and Method}
+The system has three layers (Fig.~\ref{fig:arch}): a data layer (cleaning, feature matrix, train/test split), a model layer (four classifiers, cross-validation and held-out evaluation, model selection) and an explanation layer (global and local explanations, feature-family comparison and the final prediction with reasons). Each stage is a separate Python module.
+
+\begin{figure*}[!t]
+\centering
+\includegraphics[width=0.56\textwidth]{figures/architecture.png}
+\caption{System architecture of the explainable phishing URL detector, showing the data, model and explanation layers.}
+\label{fig:arch}
+\end{figure*}
+
+\subsection{Dataset}
+The experiments use the Phishing URL Features Dataset from Kaggle (file \texttt{final\_dataset.csv}) \cite{zelik2025dataset}. It contains 579,920 URL records, each described by 74 engineered numerical features and a binary label. In the full file 339,074 records (58.47\%) are legitimate (label~0) and 240,846 (41.53\%) are phishing (label~1). The classes are moderately imbalanced, so accuracy alone is not sufficient for evaluation. The dataset description lists 53 lexical, 9 DNS and 12 WHOIS features; in our code each column is assigned to a family from its name (55 lexical, 9 DNS and 10 WHOIS columns), and the family-level analysis in Section~\ref{sec:results} uses this assignment.
+
+\subsection{Preprocessing and Data Split}
+Exact duplicate rows are removed if present and the label column is mapped to 1 for phishing. The data are divided with a stratified 80/20 split and a fixed random seed, giving 463,936 training and 115,984 test URLs with the same phishing share (41.53\%) in both parts. Imputation and scaling are placed inside the model pipelines and fitted on training data only: missing values are imputed with training medians, and features are standardized for the two linear models; histogram gradient boosting handles missing values natively. The test set is used once for final evaluation, and three-fold cross-validation on the training part provides an additional check.
+
+\subsection{Classifiers}
+Four classifiers are compared with the same split and preprocessing: logistic regression (baseline); a random forest with 200 trees \cite{breiman2001random}; histogram-based gradient boosting with 300 iterations and learning rate 0.1; and a linear support vector machine whose scores are converted to probabilities by sigmoid calibration. A linear kernel is used because kernel SVMs do not scale to several hundred thousand records. All models use their default settings apart from the values stated here; no hyper-parameter search was performed for the reported results. The decision threshold is 0.5.
+
+\subsection{Evaluation Metrics}
+With TP, TN, FP and FN denoting true positives, true negatives, false positives and false negatives (phishing is the positive class), the usual metrics are
+\begin{align}
+\text{Accuracy} &= \frac{TP+TN}{TP+TN+FP+FN},\\
+\text{Precision} &= \frac{TP}{TP+FP},\qquad
+\text{Recall} = \frac{TP}{TP+FN},\\
+F_1 &= \frac{2\cdot\text{Precision}\cdot\text{Recall}}{\text{Precision}+\text{Recall}}.
+\end{align}
+To make results easy to interpret, the confusion matrix is also expressed as percentages of the test set. The \emph{success rate} is the percentage of test URLs classified correctly, which equals accuracy, and the \emph{failure rate} is $100\cdot(FP+FN)/N$ for $N$ test URLs. Failure is split into two error types with different costs: the \emph{phishing miss rate} $100\cdot FN/(TP+FN)$, the share of phishing URLs that pass as safe, and the \emph{false-alarm rate} $100\cdot FP/(TN+FP)$, the share of legitimate URLs wrongly flagged. Their complements are the phishing detection rate (recall) and the legitimate pass rate. ROC-AUC is also reported as a threshold-independent measure.
+
+\subsection{Explainability}
+\emph{Global} explanations use permutation importance: one feature at a time is shuffled on a random sample of 2,000 test URLs (five repeats) and the drop in $F_1$ is recorded. Importances are summed per feature family to compare the lexical, DNS and WHOIS groups, and partial dependence plots show how the predicted phishing probability changes with a feature.
+
+\emph{Local} explanations use an occlusion analysis. For a URL $\mathbf{x}$ and feature $j$, the effect
+\begin{equation}
+\Delta_j(\mathbf{x}) = \operatorname{logit} P(\mathbf{x}) - \operatorname{logit} P(\mathbf{x}^{(j\leftarrow \tilde{m}_j)})
+\end{equation}
+measures how much the log-odds of phishing change when feature $j$ is replaced by its training median $\tilde{m}_j$; positive values push the URL towards phishing. The pipeline also computes SHAP values with the tree explainer, which decomposes a prediction as $f(\mathbf{x})=\phi_0+\sum_{j=1}^{M}\phi_j$ \cite{lundberg2017unified}, and LIME explanations of individual URLs \cite{ribeiro2016why}. These explanations describe the behaviour of the trained model; they do not establish that a feature causes a URL to be malicious, and predictions are treated as risk indicators rather than proof of malicious intent.
+
+\section{Implementation Details}
+The implementation is written in Python and uses Pandas and NumPy for data handling, scikit-learn for preprocessing, models and permutation importance, Matplotlib for figures, and the SHAP and LIME packages for feature attribution. The execution sequence is: (1)~\texttt{train\_evaluate.py} loads and splits the data, trains and compares the models, writes the metrics tables and figures, and saves the best model; (2)~\texttt{explain.py} loads the saved model and test split and produces the global and local explanations; (3)~\texttt{predict.py} classifies and explains a single URL from the command line. A small synthetic-data generator is included only to test the code offline; no result in this paper uses synthetic data.
+
+\section{Experimental Results}\label{sec:results}
+\subsection{Experimental Setup}
+All results were obtained by running the released code on the full dataset with the split described in Section~III-B (115,984 test URLs, of which 48,169 are phishing and 67,815 legitimate). Training took about 21~s for logistic regression, 42~s for gradient boosting, 101~s for the linear SVM and 121~s for the random forest on the authors' computer.
+
+\subsection{Classification Performance}
+Table~\ref{tab:perf} and Fig.~\ref{fig:sf} summarize the test-set results. The random forest is the best model (F$_1=0.9819$, ROC-AUC $=0.9983$), with gradient boosting close behind. The two linear models are about four points lower, which indicates a clearly non-linear boundary between phishing and legitimate URLs in this feature space. The cross-validation $F_1$ of each model is close to its test $F_1$ (for example 0.9796 versus 0.9819 for the random forest), so overfitting is unlikely.
+
+\begin{table}[!t]
+\renewcommand{\arraystretch}{1.15}
+\caption{Classifier Performance on the Held-Out Test Set (115,984 URLs)}
+\label{tab:perf}
+\centering
+\footnotesize
+\resizebox{\columnwidth}{!}{%
+\begin{tabular}{lcccccc}
+\hline
+Model & Acc. & Prec. & Rec. & F$_1$ & AUC & CV F$_1$ \\
+\hline
+Random Forest & 0.9851 & 0.9902 & 0.9737 & 0.9819 & 0.9983 & 0.9796 \\
+Gradient Boosting & 0.9823 & 0.9844 & 0.9729 & 0.9786 & 0.9977 & 0.9779 \\
+Logistic Regression & 0.9438 & 0.9436 & 0.9196 & 0.9315 & 0.9845 & 0.9325 \\
+SVM (Linear) & 0.9428 & 0.9433 & 0.9175 & 0.9302 & 0.9844 & 0.9311 \\
+\hline
+\end{tabular}}
+\end{table}
+
+\subsection{Success and Failure Percentages}
+Table~\ref{tab:sf} gives the confusion counts and the corresponding percentages. The random forest has a success rate of 98.51\% and a failure rate of 1.49\%. It misses 2.63\% of phishing URLs (1,265 of 48,169) and wrongly flags 0.68\% of legitimate URLs (464 of 67,815). Missed phishing is therefore the larger error type for every model, and the linear models miss roughly three times as many phishing URLs as the random forest. Because a missed phishing URL is usually the costlier error, lowering the decision threshold could trade additional false alarms for a lower miss rate; this trade-off was not explored here.
+
+\begin{table*}[!t]
+\renewcommand{\arraystretch}{1.15}
+\caption{Confusion Counts and Success/Failure Percentages on the Test Set (Phishing = Positive Class)}
+\label{tab:sf}
+\centering
+\small
+\resizebox{\textwidth}{!}{%
+\begin{tabular}{lrrrrcccccc}
+\hline
+Model & TN & FP & FN & TP & Success \% & Failure \% & Phishing detected \% & Phishing missed \% & Legit passed \% & False alarms \% \\
+\hline
+Random Forest & 67{,}351 & 464 & 1{,}265 & 46{,}904 & 98.51 & 1.49 & 97.37 & 2.63 & 99.32 & 0.68 \\
+Gradient Boosting & 67{,}070 & 745 & 1{,}305 & 46{,}864 & 98.23 & 1.77 & 97.29 & 2.71 & 98.90 & 1.10 \\
+Logistic Regression & 65{,}167 & 2{,}648 & 3{,}871 & 44{,}298 & 94.38 & 5.62 & 91.96 & 8.04 & 96.10 & 3.90 \\
+SVM (Linear) & 65{,}157 & 2{,}658 & 3{,}972 & 44{,}197 & 94.28 & 5.72 & 91.75 & 8.25 & 96.08 & 3.92 \\
+\hline
+\end{tabular}}
+\end{table*}
+
+\begin{figure*}[!t]
+\centering
+\includegraphics[width=0.85\textwidth]{figures/success_failure.png}
+\caption{Overall success versus failure rate (left) and per-class success and failure rates (right) of the four classifiers on the test set.}
+\label{fig:sf}
+\end{figure*}
+
+\begin{figure*}[!t]
+\centering
+\includegraphics[width=0.9\textwidth]{figures/confusion_matrices.png}
+\caption{Confusion matrices of the four classifiers on the test set.}
+\label{fig:cm}
+\end{figure*}
+
+\subsection{Global Feature Attribution}
+Table~\ref{tab:imp} lists the most important features of the random forest according to permutation importance on a sample of 2,000 test URLs, and Fig.~\ref{fig:group} aggregates importance by family. Hostname length ranks first, followed by HTTPS use, the \texttt{www} prefix, domain age (WHOIS) and the DNS time-to-live value. Lexical features carry about 87.08\% of the total importance, WHOIS features 9.24\% and DNS features 3.68\%. Lexical features therefore dominate, but WHOIS and DNS features still contribute, which supports combining the three families. An earlier run on a sample of 5,000 test URLs gave shares of 75.0\%, 13.1\% and 11.9\% for the lexical, WHOIS and DNS families; the ranking was the same, but the exact shares depend on the sample and should be read as approximate. Correlated features (for example URL length, number of letters and number of digits) share credit, so individual values are small.
+
+\begin{table}[!t]
+\renewcommand{\arraystretch}{1.15}
+\caption{Most Important Features of the Random Forest (Mean Drop in F$_1$ When Shuffled, $\pm$ Std.)}
+\label{tab:imp}
+\centering
+\footnotesize
+\begin{tabular}{clcc}
+\hline
+Rank & Feature & Family & Importance \\
+\hline
+1 & \texttt{hostname\_length} & Lexical & 0.0342 $\pm$ 0.0027 \\
+2 & \texttt{uses\_https} & Lexical & 0.0158 $\pm$ 0.0021 \\
+3 & \texttt{has\_www} & Lexical & 0.0155 $\pm$ 0.0006 \\
+4 & \texttt{domain\_age\_days} & WHOIS & 0.0063 $\pm$ 0.0016 \\
+5 & \texttt{ttl\_value} & DNS & 0.0024 $\pm$ 0.0007 \\
+6 & \texttt{num\_dots} & Lexical & 0.0011 $\pm$ 0.0018 \\
+7 & \texttt{num\_letters} & Lexical & 0.0010 $\pm$ 0.0005 \\
+8 & \texttt{entropy\_domain} & Lexical & 0.0009 $\pm$ 0.0007 \\
+\hline
+\end{tabular}
+\end{table}
+
+\begin{figure}[!t]
+\centering
+\includegraphics[width=0.95\columnwidth]{figures/global_importance.png}
+\caption{Permutation importance of the 15 most important features, coloured by feature family.}
+\label{fig:global}
+\end{figure}
+
+\begin{figure}[!t]
+\centering
+\includegraphics[width=0.8\columnwidth]{figures/group_importance.png}
+\caption{Share of permutation importance carried by each feature family.}
+\label{fig:group}
+\end{figure}
+
+\IfFileExists{figures/shap_summary.png}{%
+Fig.~\ref{fig:shap} shows the SHAP summary of the random forest on a sample of 300 test URLs; positive SHAP values push a prediction towards the phishing class.
+\begin{figure}[!t]
+\centering
+\includegraphics[width=\columnwidth]{figures/shap_summary.png}
+\caption{SHAP summary plot of the random forest (sample of 300 test URLs).}
+\label{fig:shap}
+\end{figure}}{}
+
+\subsection{Local Explanations}
+Fig.~\ref{fig:local} shows occlusion-based explanations for two correctly classified test URLs. For the phishing example (model probability 0.90), the strongest evidence is a high URL entropy (5.68), a 29-character hostname, 59 digits and a URL of 417 characters, while a short DNS TTL value (60) works against the phishing verdict. For the legitimate example (probability 0.10), a short, low-entropy hostname and domain, a short path, a short URL (23 characters) and a single dot push the decision towards legitimate, while an IP count of four and a TTL value of 59 push towards phishing. Such per-URL reasons allow an analyst to check and challenge each verdict.
+
+\begin{figure*}[!t]
+\centering
+\begin{minipage}{0.4\textwidth}
+\centering
+\includegraphics[width=\textwidth]{figures/local_phishing.png}
+\end{minipage}\hfill
+\begin{minipage}{0.4\textwidth}
+\centering
+\includegraphics[width=\textwidth]{figures/local_legitimate.png}
+\end{minipage}
+\caption{Local explanations of a phishing URL (left) and a legitimate URL (right): effect of each feature on the log-odds of phishing relative to its training median.}
+\label{fig:local}
+\end{figure*}
+
+\section{Discussion}
+Missed phishing and false alarms have different costs: a missed phishing URL exposes users, whereas a false alarm blocks a legitimate site. Reporting both rates, rather than accuracy alone, allows the decision threshold to be chosen for the intended deployment. The advantage of the tree ensembles over the linear models suggests that interactions between features matter, which is also why single-feature importance values should be interpreted together with partial dependence and local explanations.
+
+Some of the most important features, such as HTTPS use and the \texttt{www} prefix, may reflect how the dataset was collected (for example, legitimate URLs often originate from popular sites that use both) rather than a general property of phishing. They should therefore be re-checked on independently collected data before the model is trusted for deployment. SHAP and permutation importance explain the behaviour of the trained model and do not demonstrate causality.
+
+\section{Limitations and Future Work}
+The principal limitations of this study are the following.
+\begin{itemize}
+\item All results come from one dataset, one stratified 80/20 split and one random seed; repeating with several seeds, time-based splits and independently collected data would give confidence intervals and test generalization to newly emerging phishing campaigns.
+\item The features are pre-computed by the dataset authors. Scoring a new URL requires the same feature extraction, including DNS and WHOIS look-ups, which are slow and reflect the state of a domain at collection time.
+\item The assignment of features to families follows column names and differs slightly from the dataset description (55/9/10 versus 53/9/12); family-level importance shares vary with the sample used for permutation importance.
+\item Default hyper-parameters were used and the SVM is linear; tuning, other kernels and additional models could change the ranking.
+\item Robustness to adversarial URL manipulation, inference latency and the cost of generating explanations were not evaluated.
+\end{itemize}
+Future work includes testing on newly emerging phishing URLs, adding page-content features, a real-time detection demonstration and a comparison of further XAI techniques.
+
+\section{Conclusion}
+This paper presented an explainable phishing URL detector that combines lexical, DNS and WHOIS features, compares four classifiers using accuracy-type metrics and explicit success and failure percentages, and explains predictions with feature-importance analysis, SHAP and LIME. On 115,984 held-out URLs the random forest achieved a 98.51\% success rate (1.49\% failure, F$_1=0.9819$), and lexical features contributed most of the importance, followed by WHOIS and DNS features. The results are limited to one dataset and split, and validation on independent data is required before the approach can be considered a demonstrated phishing defence.
+
+\section*{Acknowledgment}
+The authors thank their guide and the faculty of UPES for their support, and the contributors of the Kaggle dataset.
+
+\begin{thebibliography}{10}
+\bibitem{ma2009beyond}
+J.~Ma, L.~K. Saul, S.~Savage, and G.~M. Voelker, ``Beyond blacklists: Learning to detect malicious web sites from suspicious {URLs},'' in \emph{Proc. 15th ACM SIGKDD Int. Conf. Knowledge Discovery and Data Mining}, 2009, pp. 1245--1254.
+
+\bibitem{sahoo2017malicious}
+D.~Sahoo, C.~Liu, and S.~C.~H. Hoi, ``Malicious {URL} detection using machine learning: A survey,'' arXiv:1701.07179, 2017.
+
+\bibitem{sahingoz2019machine}
+O.~K. Sahingoz, E.~Buber, O.~Demir, and B.~Diri, ``Machine learning based phishing detection from {URLs},'' \emph{Expert Systems with Applications}, vol.~117, pp. 345--357, 2019.
+
+\bibitem{breiman2001random}
+L.~Breiman, ``Random forests,'' \emph{Machine Learning}, vol.~45, no.~1, pp. 5--32, 2001.
+
+\bibitem{chen2016xgboost}
+T.~Chen and C.~Guestrin, ``{XGBoost}: A scalable tree boosting system,'' in \emph{Proc. 22nd ACM SIGKDD Int. Conf. Knowledge Discovery and Data Mining}, 2016, pp. 785--794.
+
+\bibitem{ribeiro2016why}
+M.~T. Ribeiro, S.~Singh, and C.~Guestrin, ```Why should {I} trust you?': Explaining the predictions of any classifier,'' in \emph{Proc. 22nd ACM SIGKDD Int. Conf. Knowledge Discovery and Data Mining}, 2016, pp. 1135--1144.
+
+\bibitem{lundberg2017unified}
+S.~M. Lundberg and S.-I. Lee, ``A unified approach to interpreting model predictions,'' in \emph{Advances in Neural Information Processing Systems}, vol.~30, 2017, pp. 4765--4774.
+
+\bibitem{arrieta2020xai}
+A.~Barredo~Arrieta \emph{et~al.}, ``Explainable artificial intelligence ({XAI}): Concepts, taxonomies, opportunities and challenges toward responsible {AI},'' \emph{Information Fusion}, vol.~58, pp. 82--115, 2020.
+
+\bibitem{adadi2018peeking}
+A.~Adadi and M.~Berrada, ``Peeking inside the black-box: A survey on explainable artificial intelligence ({XAI}),'' \emph{IEEE Access}, vol.~6, pp. 52138--52160, 2018.
+
+\bibitem{zelik2025dataset}
+E.~Zelik, ``Phishing {URL} features dataset,'' Kaggle. [Online]. Available: \url{https://www.kaggle.com/datasets/elifzelik/phishing-url-features-dataset}. Accessed: [date].
+\end{thebibliography}
+
+\end{document}
